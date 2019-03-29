@@ -1,0 +1,48 @@
+resources:
+  - name: docker-cli
+    type: cliConfig
+    integration: docker
+
+  - name: my-image
+    type: image
+    integration: docker
+    versionTemplate:
+      sourceName: skylark01/busybox
+      versionName: latest
+
+jobs:
+  - name: build-image
+    type: runSh
+    steps:
+      - IN: docker-cli
+      - TASK:
+          script:
+            - VERSION="cd.$BUILD_NUMBER"
+            - echo "Building $VERSION"
+            - docker pull busybox:latest
+            - docker tag busybox:latest "skylark01/busybox:$VERSION"
+            - docker push "skylark01/busybox:$VERSION"
+            - shipctl post_resource_state my-image versionName $VERSION
+      - OUT: my-image
+
+  - name: verify-image
+    type: runSh
+    steps:
+      - IN: my-image
+      - TASK:
+          script:
+            - VERSION=$(shipctl get_resource_version_name my-image)
+            - echo "Verifying $VERSION"
+            - docker run skylark01/busybox:$VERSION /bin/sh -c echo "Hello, World"
+            - shipctl post_resource_state verify-image versionName $VERSION
+
+  - name: deploy-image
+    type: runSh
+    steps:
+      - IN: verify-image
+        switch: off
+      - TASK:
+          script:
+            - VERSION=$(shipctl get_resource_version_name verify-image)
+            - echo "Deploying $VERSION"
+            - shipctl post_resource_state deploy-image versionName $VERSION
